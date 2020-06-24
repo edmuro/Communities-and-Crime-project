@@ -1,0 +1,245 @@
+---
+title: "sta4320-project-communities-and-crime"
+author: "Eric Muro"
+date: "November 18, 2018"
+output: html_document
+---
+###Communities and Crime: Row Removal
+
+First, we read the .csv file into a dataframe, named communities here to mark the fact that this data frame has the rows with "?" entries removed, not the columns.
+```{r}
+communities <- read.csv("communitiesandcrime.csv")
+```
+
+We create the removeRow vector to hold the indices of the rows which contain the "?" entries, credit to Theresa for coming up with the code
+
+```{r}
+communities <- communities[,-c(2,3,4)]
+
+removeRow <- c()
+
+for(i in 1:nrow(communities)){
+  if (length(which(communities[i,] == "?")) != 0)
+    removeRow <- c(i,removeRow)
+}
+
+```
+
+Now we remove the rows from the communities dataframe
+
+```{r}
+communities <- communities[-removeRow,]
+```
+
+We note that 1,675 rows have been removed, leaving us with 319 data points for observation.
+
+Now we review the dataframe for any "?" entries left"
+
+```{r}
+head(communities)
+```
+
+Now regression may begin. We start with Least Squares regression. A number of predictors are not considered numeric by R, even when the data set says otherwise. For this, we run a for loop to force all predictors other that the categorical variable "state" into becoming numeric before fitting the least squares model.
+
+```{r}
+for (j in 2:ncol(communities)){
+  communities[,j]<-as.numeric(communities[,j])
+}
+
+lm.fit <- lm(ViolentCrimesPerPop~., data=communities)
+summary(lm.fit)
+```
+
+We see that the least squares model with all predictors is already a strong fit, with an R^2 value of .8223 and an adjusted R^2 value of 0.7088. However, we do need to account for the one categorical variable, state. We fit a model of terms in interaction with state, in an effort to find a better model fit based on the particular state a community belongs to.
+
+```{r}
+options(max.print = 100000)
+interaction.fit <- lm(ViolentCrimesPerPop~. +state:.,data=communities)
+summary(interaction.fit)
+```
+
+We note a marked increase in R^2 values, with .9372 for multiple and .7225 for adjusted R^2 values, but we also note that the interaction between state and PolicPerPop, the number of police per 100,000 citizens, is undefined.
+
+##Best Subset Selection
+
+#Mallow's Cp, BIC, and Adjusted R^2 for least squares fit
+
+We produce graphs of our best subset selection results using Mallow's Cp, Bayesian Information Criterion (BIC), and Adjsuted R^2, respectively.  
+
+```{r}
+library(leaps)
+regfit.full<-regsubsets(ViolentCrimesPerPop~., data = communities, nvmax = 124, method = "forward")
+
+regfit.summary <- summary(regfit.full)
+
+par(mfrow=c(1,3))
+
+plot(1:124,regfit.summary$cp,xlab="Number of Predictors",ylab="Cp")
+plot(1:124,regfit.summary$bic,xlab="Number of Predictors",ylab="BIC")
+plot(1:124,regfit.summary$adjr2,xlab="Number of Predictors",ylab="Adjusted R^2")
+
+```
+
+
+```{r}
+rank(regfit.summary$cp)
+which.min(regfit.summary$cp)
+
+rank(regfit.summary$bic)
+which.min(regfit.summary$bic)
+
+rank(regfit.summary$adjr2)
+which.max(regfit.summary$adjr2)
+```
+
+We see from the graphs and the rankings that the model with 29 predictors has the lowest Mallow's Cp value, the model with 7 predictors has the lowest BIC value, and the model with 62 predictors has the highest Adjusted R^2 value.
+
+```{r}
+coef(regfit.full,29)
+
+coef(regfit.full,7)
+
+coef(regfit.full,62)
+```
+
+The sets of information above are the intercepts and coefficients of the linear models with the best fit according to Mallow's Cp, BIC, and Adjusted R^2, respectively, each set separated by a new line.
+
+#Validation Set
+
+We now find validation set prediction error on our three best fitting models, according to Mallow's Cp, BIC, and Adjusted R^2
+
+```{r}
+library(ISLR)
+set.seed(1)
+train = sample(319,159)
+attach(communities)
+
+cplm.fit <- lm(ViolentCrimesPerPop~state+householdsize+racePctWhite+agePct16t24+agePct65up+pctWFarmSelf+pctWInvInc+pctWSocSec+PctNotHSGrad+PctEmplManu+PctOccupManu+TotalPctDiv+PersPerFam+PctKids2Par+NumImmig+PctSpeakEnglOnly+PersPerOccupHous+PersPerRentOccHous+MedOwnCostPctInc+NumStreet+PctBornSameState+PctSameState85+LemasTotalReq+PolicReqPerOffic+RacialMatchCommPol+PctUsePubTrans+PolicCars+LemasGangUnitDeploy+LemasPctOfficDrugUn, data = communities, subset = train)
+
+biclm.fit <- lm(ViolentCrimesPerPop~state+racePctWhite+pctWInvInc+PctEmplManu+PctKids2Par+NumStreet+PolicReqPerOffic, data = communities, subset = train)
+
+adjrlm.fit <- lm(ViolentCrimesPerPop~state+population+householdsize+racePctWhite+racePctAsian+racePctHisp+agePct16t24+agePct65up+numbUrban+pctWWage+pctWFarmSelf+pctWInvInc+pctWSocSec+pctWPubAsst+medFamInc+perCapInc+WhitePerCap+IndianPerCap+NumUnderPov+PctPopUnderPov+PctNotHSGrad+PctUnemployed+PctEmploy+PctEmplManu+PctOccupManu+TotalPctDiv+PersPerFam+PctKids2Par+PctIlleg+NumImmig+PctImmigRecent+PctImmigRec5+PctImmigRec10+PctSpeakEnglOnly+PctLarHouseOccup+PersPerOccupHous+PersPerRentOccHous+PctPersDenseHous+PctHousLess3BR+PctWOFullPlumb+OwnOccLowQuart+RentLowQ+MedRent+MedRentPctHousInc+MedOwnCostPctInc+NumStreet+PctBornSameState+PctSameState85+LemasSwornFT+LemasTotalReq+LemasTotReqPerPop+PolicReqPerOffic+RacialMatchCommPol+PctPolicAsian+PolicAveOTWorked+LandArea+PopDens+PctUsePubTrans+PolicCars+PolicOperBudg+LemasGangUnitDeploy+LemasPctOfficDrugUn, data = communities, subset=train)
+```
+
+```{r}
+mean((ViolentCrimesPerPop - predict(cplm.fit,communities))[-train]^2)
+mean((ViolentCrimesPerPop - predict(biclm.fit,communities))[-train]^2)
+mean((ViolentCrimesPerPop - predict(adjrlm.fit,communities))[-train]^2)
+```
+
+We see our best fit according to Mallow's Cp has a validation set prediction error of 0.02834402. Validation set error for our BIC model is 0.02655604, and error for the best fit model according to adjusted r^2 is 0.04001776.
+
+#LOOCV
+
+```{r}
+library(boot)
+
+cpglm.fit <- glm(ViolentCrimesPerPop~state+householdsize+racePctWhite+agePct16t24+agePct65up+pctWFarmSelf+pctWInvInc+pctWSocSec+PctNotHSGrad+PctEmplManu+PctOccupManu+TotalPctDiv+PersPerFam+PctKids2Par+NumImmig+PctSpeakEnglOnly+PersPerOccupHous+PersPerRentOccHous+MedOwnCostPctInc+NumStreet+PctBornSameState+PctSameState85+LemasTotalReq+PolicReqPerOffic+RacialMatchCommPol+PctUsePubTrans+PolicCars+LemasGangUnitDeploy+LemasPctOfficDrugUn, data = communities)
+cpcv.err = cv.glm(communities,cpglm.fit)
+cpcv.err$delta
+
+bicglm.fit <- glm(ViolentCrimesPerPop~state+racePctWhite+pctWInvInc+PctEmplManu+PctKids2Par+NumStreet+PolicReqPerOffic, data = communities)
+biccv.err = cv.glm(communities,bicglm.fit)
+biccv.err$delta
+
+adjrglm.fit <- glm(ViolentCrimesPerPop~state+population+householdsize+racePctWhite+racePctAsian+racePctHisp+agePct16t24+agePct65up+numbUrban+pctWWage+pctWFarmSelf+pctWInvInc+pctWSocSec+pctWPubAsst+medFamInc+perCapInc+WhitePerCap+IndianPerCap+NumUnderPov+PctPopUnderPov+PctNotHSGrad+PctUnemployed+PctEmploy+PctEmplManu+PctOccupManu+TotalPctDiv+PersPerFam+PctKids2Par+PctIlleg+NumImmig+PctImmigRecent+PctImmigRec5+PctImmigRec10+PctSpeakEnglOnly+PctLarHouseOccup+PersPerOccupHous+PersPerRentOccHous+PctPersDenseHous+PctHousLess3BR+PctWOFullPlumb+OwnOccLowQuart+RentLowQ+MedRent+MedRentPctHousInc+MedOwnCostPctInc+NumStreet+PctBornSameState+PctSameState85+LemasSwornFT+LemasTotalReq+LemasTotReqPerPop+PolicReqPerOffic+RacialMatchCommPol+PctPolicAsian+PolicAveOTWorked+LandArea+PopDens+PctUsePubTrans+PolicCars+PolicOperBudg+LemasGangUnitDeploy+LemasPctOfficDrugUn, data = communities)
+adjrcv.err = cv.glm(communities,adjrglm.fit)
+adjrcv.err$delta
+```
+
+We see LOOCV results for our three models, the Mallow's Cp model having LOOCV prediction error of 0.02311278, the BIC model with 0.02522776, and the adjusted r^2 model having error of 0.02435559
+
+#K-fold CV
+
+
+```{r}
+kcpcv.err = cv.glm(communities,cpglm.fit, K = 5)
+kcpcv.err$delta
+kbiccv.err = cv.glm(communities,bicglm.fit, K = 5)
+kbiccv.err$delta
+kadjr.err = cv.glm(communities,adjrglm.fit, K = 5)
+kadjr.err$delta
+```
+
+We see K=5 fold results for our three models, with the best fit Mallow's Cp model earning 5-fold CV error of 0.02216612, the BIC model with 0.02553644, and the best fit model according to adjusted r^2 getting a 5-fold CV error of 0.02486301
+
+##Ridge Regression
+
+```{r}
+library(Matrix)
+library(foreach)
+library(glmnet)
+
+x = model.matrix(ViolentCrimesPerPop~.,communities)
+y = communities$ViolentCrimesPerPop
+
+ridge.mod <- cv.glmnet(x, y, alpha = 0)
+bestlam.ridge = ridge.mod$lambda.min
+
+plot(ridge.mod)
+
+```
+
+```{r}
+fit.ridge <-glmnet(x,y, alpha = 0, lambda = bestlam.ridge)
+coef(fit.ridge)
+```
+
+
+#Ridge Validation Set
+
+```{r}
+fractiontraining = 0.5
+fractiontesting = 0.5
+ntraining = floor(fractiontraining*nrow(communities))
+ntest = floor(fractiontesting*nrow(communities))
+indicestraining = sort(sample(1:nrow(communities), size = ntraining))
+indicestesting = setdiff(2:nrow(communities), indicestraining)
+communitiestraining = communities[indicestraining,]
+communitiestesting = communities[indicestesting,]
+
+xtest <- model.matrix(ViolentCrimesPerPop~., data=communitiestraining)
+ytest <- communitiestesting$ViolentCrimesPerPop
+testPred.ridge <- predict(fit.ridge, s = bestlam.ridge, newx = xtest)
+
+mean((testPred.ridge-ytest)^2)
+```
+
+#Ridge LOOCV
+
+```{r}
+min(ridge.mod$cvm)
+
+```
+
+##Lasso Regression
+
+```{r}
+lasso.mod <- cv.glmnet(x,y,alpha=1)
+plot(lasso.mod)
+```
+
+```{r}
+bestlam.lasso <- lasso.mod$lambda.min
+fit.lasso <- glmnet(x,y,alpha=1,lambda = bestlam.lasso)
+coef(fit.lasso)
+```
+
+#Lasso Validation Set
+
+```{r}
+testPred.lasso <- predict(fit.lasso, s = bestlam.lasso, newx = xtest)
+
+mean((testPred.lasso-ytest)^2)
+```
+
+#Lasso LOOCV
+
+```{r}
+min(lasso.mod$cvm)
+```
+
+
+
+
+
